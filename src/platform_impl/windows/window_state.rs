@@ -5,19 +5,19 @@ use crate::{
     platform_impl::platform::{event_loop, util, Fullscreen},
     window::{CursorIcon, Theme, WindowAttributes},
 };
-use std::io;
 use std::sync::MutexGuard;
+use std::{collections::HashMap, io};
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     Graphics::Gdi::InvalidateRgn,
     UI::WindowsAndMessaging::{
-        AdjustWindowRectEx, EnableMenuItem, GetMenu, GetSystemMenu, GetWindowLongW, SendMessageW,
-        SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_BOTTOM,
-        HWND_NOTOPMOST, HWND_TOPMOST, MF_BYCOMMAND, MF_DISABLED, MF_ENABLED, SC_CLOSE,
-        SWP_ASYNCWINDOWPOS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOREPOSITION,
-        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
-        SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WINDOW_EX_STYLE, WINDOW_STYLE, WS_BORDER, WS_CAPTION,
-        WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_ACCEPTFILES, WS_EX_APPWINDOW,
+        AdjustWindowRectEx, DestroyIcon, EnableMenuItem, GetMenu, GetSystemMenu, GetWindowLongW,
+        SendMessageW, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HCURSOR,
+        HICON, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, MF_BYCOMMAND, MF_DISABLED, MF_ENABLED,
+        SC_CLOSE, SWP_ASYNCWINDOWPOS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOREPOSITION, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+        SW_SHOW, SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WINDOW_EX_STYLE, WINDOW_STYLE, WS_BORDER,
+        WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_ACCEPTFILES, WS_EX_APPWINDOW,
         WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
         WS_EX_WINDOWEDGE, WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZE, WS_MINIMIZEBOX,
         WS_OVERLAPPEDWINDOW, WS_POPUP, WS_SIZEBOX, WS_SYSMENU, WS_VISIBLE,
@@ -63,8 +63,34 @@ pub struct SavedWindow {
 }
 
 #[derive(Clone)]
+pub enum CachedCursor {
+    Shared(HCURSOR),
+    Owning(HCURSOR),
+}
+
+impl CachedCursor {
+    pub fn get(&self) -> HCURSOR {
+        match self {
+            CachedCursor::Shared(handle) => *handle,
+            CachedCursor::Owning(handle) => *handle,
+        }
+    }
+}
+
+impl Drop for CachedCursor {
+    fn drop(&mut self) {
+        if let CachedCursor::Owning(hcursor) = *self {
+            unsafe {
+                DestroyIcon(hcursor as HICON);
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct MouseProperties {
     pub cursor: CursorIcon,
+    pub cursor_cache: HashMap<CursorIcon, CachedCursor>,
     pub capture_count: u32,
     cursor_flags: CursorFlags,
     pub last_position: Option<PhysicalPosition<f64>>,
@@ -139,6 +165,7 @@ impl WindowState {
         WindowState {
             mouse: MouseProperties {
                 cursor: CursorIcon::default(),
+                cursor_cache: HashMap::with_capacity(32),
                 capture_count: 0,
                 cursor_flags: CursorFlags::empty(),
                 last_position: None,

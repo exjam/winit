@@ -18,9 +18,11 @@ use windows_sys::Win32::{
     Graphics::{
         Dwm::{DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND},
         Gdi::{
-            ChangeDisplaySettingsExW, ClientToScreen, CreateRectRgn, DeleteObject, InvalidateRgn,
-            RedrawWindow, CDS_FULLSCREEN, DISP_CHANGE_BADFLAGS, DISP_CHANGE_BADMODE,
-            DISP_CHANGE_BADPARAM, DISP_CHANGE_FAILED, DISP_CHANGE_SUCCESSFUL, RDW_INTERNALPAINT,
+            ChangeDisplaySettingsExW, ClientToScreen, CreateBitmap, CreateDIBSection,
+            CreateRectRgn, DeleteDC, DeleteObject, GetDC, InvalidateRgn, RedrawWindow, BITMAPINFO,
+            BITMAPV5HEADER, BI_RGB, CDS_FULLSCREEN, DIB_RGB_COLORS, DISP_CHANGE_BADFLAGS,
+            DISP_CHANGE_BADMODE, DISP_CHANGE_BADPARAM, DISP_CHANGE_FAILED, DISP_CHANGE_SUCCESSFUL,
+            LCS_GM_IMAGES, RDW_INTERNALPAINT,
         },
     },
     System::{
@@ -39,13 +41,14 @@ use windows_sys::Win32::{
             Touch::{RegisterTouchWindow, TWF_WANTPALM},
         },
         WindowsAndMessaging::{
-            CreateWindowExW, FlashWindowEx, GetClientRect, GetCursorPos, GetForegroundWindow,
-            GetSystemMetrics, GetWindowPlacement, GetWindowTextLengthW, GetWindowTextW,
-            IsWindowVisible, LoadCursorW, PeekMessageW, PostMessageW, RegisterClassExW, SetCursor,
-            SetCursorPos, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowPlacement,
-            SetWindowPos, SetWindowTextW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, FLASHWINFO,
-            FLASHW_ALL, FLASHW_STOP, FLASHW_TIMERNOFG, FLASHW_TRAY, GWLP_HINSTANCE, HTCAPTION,
-            NID_READY, PM_NOREMOVE, SM_DIGITIZER, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
+            CreateIconIndirect, CreateWindowExW, FlashWindowEx, GetClientRect, GetCursorPos,
+            GetForegroundWindow, GetSystemMetrics, GetWindowPlacement, GetWindowTextLengthW,
+            GetWindowTextW, IsWindowVisible, LoadCursorW, PeekMessageW, PostMessageW,
+            RegisterClassExW, SetCursor, SetCursorPos, SetForegroundWindow,
+            SetWindowDisplayAffinity, SetWindowPlacement, SetWindowPos, SetWindowTextW, CS_HREDRAW,
+            CS_VREDRAW, CW_USEDEFAULT, FLASHWINFO, FLASHW_ALL, FLASHW_STOP, FLASHW_TIMERNOFG,
+            FLASHW_TRAY, GWLP_HINSTANCE, HCURSOR, HICON, HTCAPTION, ICONINFO, NID_READY,
+            PM_NOREMOVE, SM_DIGITIZER, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
             SWP_NOZORDER, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_NCLBUTTONDOWN, WNDCLASSEXW,
         },
     },
@@ -71,10 +74,12 @@ use crate::{
         Fullscreen, PlatformSpecificWindowBuilderAttributes, WindowId,
     },
     window::{
-        CursorGrabMode, CursorIcon, ImePurpose, ResizeDirection, Theme, UserAttentionType,
-        WindowAttributes, WindowButtons, WindowLevel,
+        CursorGrabMode, CursorIcon, CursorIconCustom, ImePurpose, ResizeDirection, Theme,
+        UserAttentionType, WindowAttributes, WindowButtons, WindowLevel,
     },
 };
+
+use super::window_state::CachedCursor;
 
 /// The Win32 implementation of the main `Window` object.
 pub(crate) struct Window {
@@ -329,12 +334,120 @@ impl Window {
         RawDisplayHandle::Windows(WindowsDisplayHandle::empty())
     }
 
+    fn load_custom_cursor(cursor: &CursorIconCustom) -> HCURSOR {
+        unsafe {
+            let mut bmh: BITMAPV5HEADER = std::mem::zeroed();
+            bmh.bV5Size = std::mem::size_of::<BITMAPV5HEADER>() as u32;
+
+            bmh.bV5Width = cursor.width as i32;
+            bmh.bV5Height = -(cursor.height as i32);
+            bmh.bV5Planes = 1;
+            bmh.bV5Compression = BI_RGB;
+
+            bmh.bV5BitCount = 32;
+            bmh.bV5RedMask = 0x00FF0000;
+            bmh.bV5GreenMask = 0x0000FF00;
+            bmh.bV5BlueMask = 0x000000FF;
+            bmh.bV5AlphaMask = 0xFF000000;
+
+            // Use the system color space.  The default value is LCS_CALIBRATED_RGB, which
+            // causes us to crash if we don't specify the approprite gammas, etc.  See
+            // <http://msdn.microsoft.com/en-us/library/ms536531(VS.85).aspx> and
+            bmh.bV5CSType = 0x57696E20; // LCS_WINDOWS_COLOR_SPACE = 'Win '
+
+            // Use a valid value for bV5Intent as 0 is not a valid one.
+            // <http://msdn.microsoft.com/en-us/library/dd183381(VS.85).aspx>
+            bmh.bV5Intent = LCS_GM_IMAGES as u32;
+
+            let cursor_data = &*cursor.data;
+            let mask_stride = (cursor.width + 15) / 8; // Mask is aligned to WORD stride
+            let mut mask_bits = vec![0x00; (mask_stride * cursor.height) as usize];
+            for y in 0..cursor.height {
+                for x in 0..cursor.width {
+                    if cursor_data[(x * 4 + y * cursor.width * 4 + 3) as usize] == 0 {
+                        // mask is 0 = opaque, 1 = transparent
+                        mask_bits[((x / 8) + y * mask_stride) as usize] |= 1 << (x % 8);
+                    }
+                }
+            }
+
+            let hdc = GetDC(0);
+            let mut pixels: *mut c_void = ptr::null_mut();
+            let mut ii: ICONINFO = std::mem::zeroed();
+            ii.fIcon = 0;
+            ii.xHotspot = cursor.hotspot_x;
+            ii.yHotspot = cursor.hotspot_y;
+            ii.hbmColor = CreateDIBSection(
+                hdc,
+                (&bmh as *const _) as *const BITMAPINFO,
+                DIB_RGB_COLORS,
+                &mut pixels,
+                0,
+                0,
+            );
+
+            ii.hbmMask = CreateBitmap(
+                cursor.width as i32,
+                cursor.height as i32,
+                1,
+                1,
+                mask_bits.as_ptr() as *const c_void,
+            );
+
+            ptr::copy_nonoverlapping(
+                cursor_data.as_ptr() as *const u8,
+                pixels as *mut u8,
+                cursor_data.len(),
+            );
+
+            let hicon: HICON = CreateIconIndirect(&ii);
+            if hicon == 0 {
+                panic!("CreateIconIndirect() failed");
+            }
+
+            DeleteDC(hdc);
+            hicon as HCURSOR
+        }
+    }
+
     #[inline]
     pub fn set_cursor_icon(&self, cursor: CursorIcon) {
-        self.window_state_lock().mouse.cursor = cursor;
+        {
+            let mut window_state = self.window_state_lock();
+            window_state.mouse.cursor = cursor;
+        }
+
+        let window_state = Arc::clone(&self.window_state);
         self.thread_executor.execute_in_thread(move || unsafe {
-            let cursor = LoadCursorW(0, cursor.to_windows_cursor());
-            SetCursor(cursor);
+            let mut window_state = window_state.lock().unwrap();
+            if let Some(cached_cursor) = window_state
+                .mouse
+                .cursor_cache
+                .get(&window_state.mouse.cursor)
+            {
+                SetCursor(cached_cursor.get());
+            } else {
+                let hcursor = if let CursorIcon::Custom(custom) = &window_state.mouse.cursor {
+                    let hcursor = Self::load_custom_cursor(custom);
+                    let cursor = window_state.mouse.cursor.clone();
+                    window_state
+                        .mouse
+                        .cursor_cache
+                        .insert(cursor, CachedCursor::Owning(hcursor));
+                    hcursor
+                } else {
+                    let hcursor = LoadCursorW(0, window_state.mouse.cursor.to_windows_cursor());
+                    let cursor = window_state.mouse.cursor.clone();
+                    window_state
+                        .mouse
+                        .cursor_cache
+                        .insert(cursor, CachedCursor::Shared(hcursor));
+                    hcursor
+                };
+
+                drop(window_state);
+                SetCursor(hcursor);
+            }
         });
     }
 

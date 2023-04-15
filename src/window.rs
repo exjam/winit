@@ -1,5 +1,5 @@
 //! The [`Window`] struct and associated types.
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -1387,8 +1387,28 @@ pub enum CursorGrabMode {
     Locked,
 }
 
+/// CursorIcon::Custom
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct CursorIconCustom {
+    /// X coordinate of cursor image hotspot
+    pub hotspot_x: u32,
+
+    /// Y coordinate of cursor image hotspot
+    pub hotspot_y: u32,
+
+    /// Width of cursor image
+    pub width: u32,
+
+    /// Height of cursor image
+    pub height: u32,
+
+    /// Pixels of cursor image in ARGB
+    pub data: Arc<[u8]>,
+}
+
 /// Describes the appearance of the mouse cursor.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CursorIcon {
     /// The platform-dependent default cursor.
@@ -1444,6 +1464,8 @@ pub enum CursorIcon {
     NwseResize,
     ColResize,
     RowResize,
+
+    Custom(CursorIconCustom),
 }
 
 impl Default for CursorIcon {

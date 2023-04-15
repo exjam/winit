@@ -2011,26 +2011,28 @@ unsafe fn public_window_callback_inner<T: 'static>(
         }
 
         WM_SETCURSOR => {
-            let set_cursor_to = {
-                let window_state = userdata.window_state_lock();
-                // The return value for the preceding `WM_NCHITTEST` message is conveniently
-                // provided through the low-order word of lParam. We use that here since
-                // `WM_MOUSEMOVE` seems to come after `WM_SETCURSOR` for a given cursor movement.
-                let in_client_area = super::loword(lparam as u32) as u32 == HTCLIENT;
-                if in_client_area {
-                    Some(window_state.mouse.cursor)
-                } else {
-                    None
-                }
-            };
+            let window_state = userdata.window_state_lock();
 
-            match set_cursor_to {
-                Some(cursor) => {
-                    let cursor = LoadCursorW(0, cursor.to_windows_cursor());
-                    SetCursor(cursor);
-                    0
-                }
-                None => DefWindowProcW(window, msg, wparam, lparam),
+            // The return value for the preceding `WM_NCHITTEST` message is conveniently
+            // provided through the low-order word of lParam. We use that here since
+            // `WM_MOUSEMOVE` seems to come after `WM_SETCURSOR` for a given cursor movement.
+            let in_client_area = super::loword(lparam as u32) as u32 == HTCLIENT;
+            if in_client_area {
+                let cursor = if let Some(cached_cursor) = window_state
+                    .mouse
+                    .cursor_cache
+                    .get(&window_state.mouse.cursor)
+                {
+                    cached_cursor.get()
+                } else {
+                    LoadCursorW(0, window_state.mouse.cursor.to_windows_cursor())
+                };
+                drop(window_state);
+                SetCursor(cursor);
+                0
+            } else {
+                drop(window_state);
+                DefWindowProcW(window, msg, wparam, lparam)
             }
         }
 

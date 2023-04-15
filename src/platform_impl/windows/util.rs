@@ -165,7 +165,7 @@ pub fn get_instance_handle() -> HINSTANCE {
 }
 
 impl CursorIcon {
-    pub(crate) fn to_windows_cursor(self) -> PCWSTR {
+    pub(crate) fn to_windows_cursor(&self) -> PCWSTR {
         match self {
             CursorIcon::Arrow | CursorIcon::Default => IDC_ARROW,
             CursorIcon::Hand => IDC_HAND,
