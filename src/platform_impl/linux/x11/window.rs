@@ -1,7 +1,7 @@
 use std::{
     cmp, env,
     ffi::CString,
-    mem::{self, replace, MaybeUninit},
+    mem::{self, MaybeUninit},
     os::raw::*,
     path::Path,
     ptr, slice,
@@ -1330,11 +1330,17 @@ impl UnownedWindow {
     }
 
     #[inline]
-    pub fn set_cursor_icon(&self, cursor: CursorIcon) {
-        let old_cursor = replace(&mut *self.cursor.lock().unwrap(), cursor);
+    pub fn set_cursor_icon(&self, icon: CursorIcon) {
+        let mut cursor = self.cursor.lock().unwrap();
+        if *cursor == icon {
+            return;
+        }
+        *cursor = icon.clone();
+        std::mem::drop(cursor);
+
         #[allow(clippy::mutex_atomic)]
-        if cursor != old_cursor && *self.cursor_visible.lock().unwrap() {
-            self.xconn.set_cursor_icon(self.xwindow, Some(cursor));
+        if *self.cursor_visible.lock().unwrap() {
+            self.xconn.set_cursor_icon(self.xwindow, Some(icon));
         }
     }
 
@@ -1419,7 +1425,7 @@ impl UnownedWindow {
             return;
         }
         let cursor = if visible {
-            Some(*self.cursor.lock().unwrap())
+            Some(self.cursor.lock().unwrap().clone())
         } else {
             None
         };

@@ -63,7 +63,7 @@ impl WinitPointer {
     /// Set the cursor icon.
     ///
     /// Providing `None` will hide the cursor.
-    pub fn set_cursor(&self, cursor_icon: Option<CursorIcon>) {
+    pub fn set_cursor(&self, cursor_icon: Option<&CursorIcon>) {
         let cursor_icon = match cursor_icon {
             Some(cursor_icon) => cursor_icon,
             None => {
@@ -116,6 +116,8 @@ impl WinitPointer {
 
             CursorIcon::ZoomIn => &["zoom-in"],
             CursorIcon::ZoomOut => &["zoom-out"],
+
+            CursorIcon::Custom(_) => &["left_ptr"], // TODO: Wayland custom cursor
         };
 
         let serial = Some(self.latest_enter_serial.get());

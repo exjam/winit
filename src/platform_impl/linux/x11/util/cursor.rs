@@ -3,13 +3,16 @@ use crate::window::CursorIcon;
 use super::*;
 
 impl XConnection {
-    pub fn set_cursor_icon(&self, window: ffi::Window, cursor: Option<CursorIcon>) {
-        let cursor = *self
-            .cursor_cache
-            .lock()
-            .unwrap()
-            .entry(cursor)
-            .or_insert_with(|| self.get_cursor(cursor));
+    pub fn set_cursor_icon(&self, window: ffi::Window, icon: Option<CursorIcon>) {
+        let mut cursor_cache = self.cursor_cache.lock().unwrap();
+        let cursor = if let Some(cursor) = cursor_cache.get(&icon) {
+            *cursor
+        } else {
+            let cursor = self.get_cursor(icon.as_ref());
+            cursor_cache.insert(icon, cursor);
+            cursor
+        };
+        std::mem::drop(cursor_cache);
 
         self.update_cursor(window, cursor);
     }
@@ -61,7 +64,7 @@ impl XConnection {
         0
     }
 
-    fn get_cursor(&self, cursor: Option<CursorIcon>) -> ffi::Cursor {
+    fn get_cursor(&self, cursor: Option<&CursorIcon>) -> ffi::Cursor {
         let cursor = match cursor {
             Some(cursor) => cursor,
             None => return self.create_empty_cursor(),
@@ -117,6 +120,33 @@ impl XConnection {
 
             CursorIcon::ZoomIn => load(b"zoom-in\0"),
             CursorIcon::ZoomOut => load(b"zoom-out\0"),
+
+            CursorIcon::Custom(cursor) => unsafe {
+                let image =
+                    (self.xcursor.XcursorImageCreate)(cursor.width as i32, cursor.height as i32);
+                if image.is_null() {
+                    panic!("failed to allocate image for cursor");
+                }
+
+                (*image).xhot = cursor.hotspot_x;
+                (*image).yhot = cursor.hotspot_y;
+                (*image).delay = 0;
+
+                let dst = std::slice::from_raw_parts_mut(
+                    (*image).pixels,
+                    (cursor.width * cursor.height) as usize,
+                );
+
+                dst.copy_from_slice(std::slice::from_raw_parts(
+                    (*cursor.data).as_ptr() as *const u32,
+                    cursor.data.len() / 4,
+                ));
+
+                let cursor = (self.xcursor.XcursorImageLoadCursor)(self.display, image);
+                (self.xcursor.XcursorImageDestroy)(image);
+
+                cursor
+            },
         }
     }
 

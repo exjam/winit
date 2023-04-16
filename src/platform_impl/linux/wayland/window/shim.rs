@@ -161,7 +161,7 @@ pub struct WindowHandle {
     pub pending_window_requests: Arc<Mutex<Vec<WindowRequest>>>,
 
     /// Current cursor icon.
-    pub cursor_icon: Cell<CursorIcon>,
+    pub cursor_icon: Mutex<CursorIcon>,
 
     /// Whether the window is resizable.
     pub is_resizable: Cell<bool>,
@@ -221,7 +221,7 @@ impl WindowHandle {
             scale_factor: Arc::new(Mutex::new(scale_factor)),
             size,
             pending_window_requests,
-            cursor_icon: Cell::new(CursorIcon::Default),
+            cursor_icon: Mutex::new(CursorIcon::Default),
             is_resizable: Cell::new(true),
             transparent: Cell::new(false),
             cursor_grab_mode: Cell::new(CursorGrabMode::None),
@@ -437,24 +437,24 @@ impl WindowHandle {
     pub fn set_cursor_visible(&self, visible: bool) {
         self.cursor_visible.replace(visible);
         let cursor_icon = match visible {
-            true => Some(self.cursor_icon.get()),
+            true => Some(self.cursor_icon.lock().unwrap().clone()),
             false => None,
         };
 
         for pointer in self.pointers.iter() {
-            pointer.set_cursor(cursor_icon)
+            pointer.set_cursor(cursor_icon.as_ref())
         }
     }
 
     pub fn set_cursor_icon(&self, cursor_icon: CursorIcon) {
-        self.cursor_icon.replace(cursor_icon);
+        *self.cursor_icon.lock().unwrap() = cursor_icon.clone();
 
         if !self.cursor_visible.get() {
             return;
         }
 
         for pointer in self.pointers.iter() {
-            pointer.set_cursor(Some(cursor_icon));
+            pointer.set_cursor(Some(&cursor_icon));
         }
     }
 

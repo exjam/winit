@@ -230,6 +230,8 @@ impl Window {
             CursorIcon::NwseResize => "nwse-resize",
             CursorIcon::ColResize => "col-resize",
             CursorIcon::RowResize => "row-resize",
+
+            CursorIcon::Custom(_) => "auto", // TODO: web custom cursor
         };
         *self.previous_pointer.borrow_mut() = text;
         backend::set_canvas_style_property(self.canvas.borrow().raw(), "cursor", text);
