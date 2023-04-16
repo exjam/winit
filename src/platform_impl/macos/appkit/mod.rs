@@ -13,6 +13,7 @@
 
 mod appearance;
 mod application;
+mod bitmap_image;
 mod button;
 mod color;
 mod control;
@@ -34,6 +35,7 @@ pub(crate) use self::application::{
     NSApp, NSApplication, NSApplicationActivationPolicy, NSApplicationPresentationOptions,
     NSRequestUserAttentionType,
 };
+pub(crate) use self::bitmap_image::NSBitmapImageRep;
 pub(crate) use self::button::NSButton;
 pub(crate) use self::color::NSColor;
 pub(crate) use self::control::NSControl;
@@ -42,7 +44,7 @@ pub(crate) use self::cursor::NSCursor;
 pub(crate) use self::event::{
     NSEvent, NSEventModifierFlags, NSEventPhase, NSEventSubtype, NSEventType,
 };
-pub(crate) use self::image::NSImage;
+pub(crate) use self::image::{NSImage, NSImageRep};
 pub(crate) use self::menu::NSMenu;
 pub(crate) use self::menu_item::NSMenuItem;
 pub(crate) use self::pasteboard::{NSFilenamesPboardType, NSPasteboard, NSPasteboardType};

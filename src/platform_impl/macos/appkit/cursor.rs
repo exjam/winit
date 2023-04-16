@@ -1,11 +1,11 @@
 use once_cell::sync::Lazy;
 
-use objc2::foundation::{NSData, NSDictionary, NSNumber, NSObject, NSPoint, NSString};
+use objc2::foundation::{NSData, NSDictionary, NSNumber, NSObject, NSPoint, NSSize, NSString};
 use objc2::rc::{DefaultId, Id, Shared};
 use objc2::runtime::Sel;
 use objc2::{extern_class, extern_methods, msg_send_id, ns_string, sel, ClassType};
 
-use super::NSImage;
+use super::{NSBitmapImageRep, NSImage};
 use crate::window::CursorIcon;
 
 extern_class!(
@@ -194,7 +194,7 @@ extern_methods!(
 );
 
 impl NSCursor {
-    pub fn from_icon(icon: CursorIcon) -> Id<Self, Shared> {
+    pub fn from_icon(icon: &CursorIcon) -> Id<Self, Shared> {
         match icon {
             CursorIcon::Default => Default::default(),
             CursorIcon::Arrow => Self::arrowCursor(),
@@ -228,6 +228,31 @@ impl NSCursor {
             CursorIcon::Wait | CursorIcon::Progress => Self::busyButClickableCursor(),
             CursorIcon::Move | CursorIcon::AllScroll => Self::moveCursor(),
             CursorIcon::Cell => Self::cellCursor(),
+            CursorIcon::Custom(cursor) => {
+                let rep = NSBitmapImageRep::initAbgr(cursor.width as isize, cursor.height as isize);
+                let pixels = rep.bitmapData();
+
+                let rgba: Vec<_> = cursor
+                    .data
+                    .chunks_exact(4)
+                    .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+                    .collect();
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(rgba.as_ptr() as *const u8, pixels, rgba.len())
+                };
+
+                let image = NSImage::init_with_size(&NSSize::new(
+                    cursor.width.into(),
+                    cursor.height.into(),
+                ));
+                image.add_representation(&rep);
+
+                Self::new(
+                    &image,
+                    NSPoint::new(cursor.hotspot_x.into(), cursor.hotspot_y.into()),
+                )
+            }
         }
     }
 }

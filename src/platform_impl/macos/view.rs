@@ -1,5 +1,6 @@
 #![allow(clippy::unnecessary_cast)]
 
+use std::collections::HashMap;
 use std::{boxed::Box, os::raw::*, ptr, str, sync::Mutex};
 
 use objc2::declare::{Ivar, IvarDrop};
@@ -16,6 +17,7 @@ use super::appkit::{
     NSView,
 };
 use crate::platform::macos::{OptionAsAlt, WindowExtMacOS};
+use crate::window::CursorIcon;
 use crate::{
     dpi::{LogicalPosition, LogicalSize},
     event::{
@@ -39,6 +41,7 @@ use crate::{
 pub struct CursorState {
     pub visible: bool,
     pub(super) cursor: Id<NSCursor, Shared>,
+    pub(super) cursor_cache: HashMap<CursorIcon, Id<NSCursor, Shared>>,
 }
 
 impl Default for CursorState {
@@ -46,6 +49,7 @@ impl Default for CursorState {
         Self {
             visible: true,
             cursor: Default::default(),
+            cursor_cache: HashMap::with_capacity(32),
         }
     }
 }

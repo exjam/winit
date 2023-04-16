@@ -755,7 +755,13 @@ impl WinitWindow {
     pub fn set_cursor_icon(&self, icon: CursorIcon) {
         let view = self.view();
         let mut cursor_state = view.state.cursor_state.lock().unwrap();
-        cursor_state.cursor = NSCursor::from_icon(icon);
+        if let Some(cursor) = cursor_state.cursor_cache.get(&icon) {
+            cursor_state.cursor = cursor.clone();
+        } else {
+            let cursor = NSCursor::from_icon(&icon);
+            cursor_state.cursor = cursor.clone();
+            cursor_state.cursor_cache.insert(icon, cursor);
+        }
         drop(cursor_state);
         self.invalidateCursorRectsForView(&view);
     }
